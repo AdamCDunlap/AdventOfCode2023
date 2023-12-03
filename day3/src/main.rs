@@ -1,3 +1,5 @@
+
+#[cfg(test)]
 const TEST_INPUT: &str = r#"467..114..
 ...*......
 ..35..633.
@@ -124,13 +126,6 @@ fn test_extract_part_numbers() {
                 start_col: 2,
                 end_col: 4,
             },
-            // PartNumber{num: 633, row: 0, start_col: 0, end_col: 3},
-            // PartNumber{num: 617, row: 0, start_col: 0, end_col: 3},
-            // PartNumber{num: 58, row: 0, start_col: 0, end_col: 3},
-            // PartNumber{num: 592, row: 0, start_col: 0, end_col: 3},
-            // PartNumber{num: 755, row: 0, start_col: 0, end_col: 3},
-            // PartNumber{num: 664, row: 0, start_col: 0, end_col: 3},
-            // PartNumber{num: 598, row: 0, start_col: 0, end_col: 3},
         ]
     );
 
@@ -218,7 +213,7 @@ fn test_part1() {
 }
 
 fn get_gears(schematic: &str) -> Vec<(u32, u32)> {
-    let mut parts = extract_part_numbers(schematic);
+    let parts = extract_part_numbers(schematic);
     let mut gears = Vec::new();
     for (row, line) in schematic.lines().enumerate() {
         'chloop: for (col, ch) in line.bytes().enumerate() {
