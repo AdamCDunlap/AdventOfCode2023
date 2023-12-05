@@ -6,20 +6,22 @@ enum AocError {
     InvalidMapName,
     InvalidMapLine,
     DataBeforeMaps,
-    NoDirectMapping,
     NoMapFrom(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct MapEntry {
-    dst_start: u32,
-    src_start: u32,
-    len: u32,
+    dst_start: u64,
+    src_start: u64,
+    len: u64,
 }
 
 impl MapEntry {
-    fn translate(&self, src: u32) -> Option<u32> {
-        if src >= self.src_start && src < self.src_start + self.len {
+    fn contains(&self, src: u64) -> bool {
+        src >= self.src_start && src < self.src_start + self.len
+    }
+    fn translate(&self, src: u64) -> Option<u64> {
+        if self.contains(src) {
             Some(src - self.src_start + self.dst_start)
         } else {
             None
@@ -27,30 +29,232 @@ impl MapEntry {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct Range {
+    first: u64,
+    len: u64,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct Map {
     src_name: String,
     dst_name: String,
+    // invariant: Entries' source ranges do not overlap and are sorted by the source range.
     entries: Vec<MapEntry>,
 }
 
-impl Map {
-    fn translate(&self, src: u32) -> u32 {
-        self.entries
-            .iter()
-            .filter_map(|ent| ent.translate(src))
-            .next() // Return the first matching entry
-            .unwrap_or(src) // If no matching entries, identity map
+#[derive(Debug, PartialEq, Eq)]
+struct TranslatePartialResult {
+    translated: Range,
+    remaining: Range,
+}
+
+impl TranslatePartialResult {
+    fn new(full_range: &Range, first_result: u64, max_to_translate: Option<u64>) -> Self {
+        let len_translated = min_with_none(full_range.len, max_to_translate);
+
+        TranslatePartialResult {
+            translated: Range {
+                first: first_result,
+                len: len_translated,
+            },
+            remaining: Range {
+                first: full_range.first + len_translated,
+                len: full_range.len - len_translated,
+            },
+        }
     }
 }
 
-fn parse_numbers(num_list: &str) -> Vec<u32> {
+fn min_with_none(a: u64, b: Option<u64>) -> u64 {
+    if b.is_none() {
+        a
+    } else {
+        std::cmp::min(a, b.unwrap())
+    }
+}
+
+impl Map {
+    fn translate(&self, src: u64) -> u64 {
+        self.entries
+            .iter()
+            .find_map(|ent| ent.translate(src))
+            .unwrap_or(src) // If no matching entries, identity map
+    }
+
+    fn translate_partial_identity(
+        to_translate: Range,
+        next_entry: Option<&MapEntry>,
+    ) -> TranslatePartialResult {
+        TranslatePartialResult::new(
+            &to_translate,
+            to_translate.first,
+            next_entry.map(|e| e.src_start - to_translate.first),
+        )
+    }
+
+    /// Translates the first part of `to_translate`, returning one translated range and the rest of the range that was not translated.
+    fn translate_partial(&self, to_translate: Range) -> TranslatePartialResult {
+        let location = self
+            .entries
+            .partition_point(|ent| ent.src_start <= to_translate.first);
+        if location == 0 {
+            // to_translate.first is before any of the map entries, so identity map it up to the start of the first entry.
+            Map::translate_partial_identity(to_translate, self.entries.first())
+        } else {
+            let prev = &self.entries[location - 1];
+            if prev.contains(to_translate.first) {
+                let len_to_translate = prev.src_start + prev.len - to_translate.first;
+
+                TranslatePartialResult::new(
+                    &to_translate,
+                    prev.translate(to_translate.first).unwrap(),
+                    Some(len_to_translate),
+                )
+            } else {
+                // Identity map up to the next entry, if there is one
+                Map::translate_partial_identity(to_translate, self.entries.get(location))
+            }
+        }
+    }
+
+    fn translate_range(&self, to_translate: &Range) -> Vec<Range> {
+        let mut remaining = to_translate.clone();
+        let mut translated = vec![];
+        while remaining.len > 0 {
+            let partial = self.translate_partial(remaining);
+            translated.push(partial.translated);
+            remaining = partial.remaining.clone();
+        }
+        translated
+    }
+}
+
+#[cfg(test)]
+fn get_test_map() -> Map {
+    Map {
+        src_name: "".into(),
+        dst_name: "".into(),
+        entries: [
+            MapEntry {
+                src_start: 5,
+                dst_start: 105,
+                len: 10,
+            },
+            MapEntry {
+                src_start: 15,
+                dst_start: 215,
+                len: 10,
+            },
+            MapEntry {
+                src_start: 30,
+                dst_start: 330,
+                len: 20,
+            },
+        ]
+        .into(),
+    }
+}
+
+#[test]
+fn translate_partial_range_completely_before_first_test() {
+    assert_eq!(
+        get_test_map().translate_partial(Range { first: 1, len: 2 }),
+        TranslatePartialResult {
+            translated: Range { first: 1, len: 2 },
+            remaining: Range { first: 3, len: 0 },
+        }
+    );
+}
+
+#[test]
+fn translate_partial_range_partially_before_first_test() {
+    assert_eq!(
+        get_test_map().translate_partial(Range { first: 1, len: 50 }),
+        TranslatePartialResult {
+            translated: Range { first: 1, len: 4 },
+            remaining: Range { first: 5, len: 46 },
+        }
+    );
+}
+
+#[test]
+fn translate_partial_range_starting_at_first_test() {
+    assert_eq!(
+        get_test_map().translate_partial(Range { first: 5, len: 50 }),
+        TranslatePartialResult {
+            translated: Range {
+                first: 105,
+                len: 10
+            },
+            remaining: Range { first: 15, len: 40 },
+        }
+    );
+}
+
+#[test]
+fn translate_partial_range_starting_within_first_test() {
+    assert_eq!(
+        get_test_map().translate_partial(Range { first: 6, len: 50 }),
+        TranslatePartialResult {
+            translated: Range { first: 106, len: 9 },
+            remaining: Range { first: 15, len: 41 },
+        }
+    );
+}
+
+#[test]
+fn translate_partial_range_starting_at_break_point() {
+    assert_eq!(
+        get_test_map().translate_partial(Range { first: 15, len: 50 }),
+        TranslatePartialResult {
+            translated: Range {
+                first: 215,
+                len: 10
+            },
+            remaining: Range { first: 25, len: 40 },
+        }
+    );
+}
+
+#[test]
+fn translate_partial_range_starting_in_empty_range() {
+    assert_eq!(
+        get_test_map().translate_partial(Range { first: 27, len: 50 }),
+        TranslatePartialResult {
+            translated: Range { first: 27, len: 3 },
+            remaining: Range { first: 30, len: 47 },
+        }
+    );
+}
+
+#[test]
+fn translate_range_test() {
+    assert_eq!(
+        get_test_map().translate_range(&Range { first: 10, len: 30 }),
+        [
+            Range { first: 110, len: 5 },
+            Range {
+                first: 215,
+                len: 10
+            },
+            Range { first: 25, len: 5 },
+            Range {
+                first: 330,
+                len: 10
+            }
+        ]
+        .to_vec()
+    )
+}
+
+fn parse_numbers(num_list: &str) -> Vec<u64> {
     num_list.split(' ').filter_map(|s| s.parse().ok()).collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct Almanac {
-    seeds: Vec<u32>,
+    seeds: Vec<Range>,
     maps: Vec<Map>,
 }
 
@@ -61,13 +265,21 @@ impl FromStr for Almanac {
         let mut lines = input.lines();
 
         let seeds_line = lines.next().ok_or(AocError::NoSeedsLine)?;
+        let seeds_nums = parse_numbers(
+            &seeds_line
+                .strip_prefix("seeds: ")
+                .ok_or(AocError::NoSeedsLine)?,
+        );
+        let seeds = seeds_nums
+            .chunks(2)
+            .map(|vals| Range {
+                first: vals[0],
+                len: vals[1],
+            })
+            .collect();
 
         let mut almanac = Almanac {
-            seeds: parse_numbers(
-                &seeds_line
-                    .strip_prefix("seeds: ")
-                    .ok_or(AocError::NoSeedsLine)?,
-            ),
+            seeds,
             maps: vec![],
         };
 
@@ -109,6 +321,12 @@ impl FromStr for Almanac {
                     });
             }
         }
+
+        // Sort entries in each map
+        for map in almanac.maps.iter_mut() {
+            map.entries.sort_unstable_by_key(|me| me.src_start);
+        }
+
         Ok(almanac)
     }
 }
@@ -126,7 +344,7 @@ fn test_parse_almanac() {
         9 10 11"#
             .parse(),
         Ok(Almanac {
-            seeds: [1, 2].into(),
+            seeds: vec![Range { first: 1, len: 2 }],
             maps: [
                 Map {
                     src_name: "seed".into(),
@@ -169,16 +387,24 @@ impl Almanac {
             .ok_or_else(|| AocError::NoMapFrom(from_type.into()))
     }
 
-    fn translate(&self, from_type: &str, to_type: &str, num: u32) -> Result<u32, AocError> {
+    fn translate(
+        &self,
+        from_type: &str,
+        to_type: &str,
+        initial_range: Range,
+    ) -> Result<Vec<Range>, AocError> {
         let mut cur_type = from_type;
-        let mut cur_num = num;
+        let mut cur_ranges = vec![initial_range];
         while cur_type != to_type {
             let map = self.find_map(cur_type)?;
-            cur_num = map.translate(cur_num);
+            cur_ranges = cur_ranges
+                .iter()
+                .flat_map(|range| map.translate_range(range))
+                .collect();
             cur_type = &map.dst_name;
         }
 
-        Ok(cur_num)
+        Ok(cur_ranges)
     }
 }
 
@@ -219,51 +445,78 @@ humidity-to-location map:
 #[test]
 fn test_almanac_translate() {
     assert_eq!(
-        TEST_INPUT
-            .parse::<Almanac>()
-            .unwrap()
-            .translate("seed", "soil", 79),
-        Ok(81)
-    );   
-    assert_eq!(
-        TEST_INPUT
-            .parse::<Almanac>()
-            .unwrap()
-            .translate("seed", "location", 79),
-        Ok(82)
+        TEST_INPUT.parse::<Almanac>().unwrap().translate(
+            "seed",
+            "soil",
+            Range { first: 79, len: 1 }
+        ),
+        Ok(vec![Range { first: 81, len: 1 }])
     );
     assert_eq!(
-        TEST_INPUT
-            .parse::<Almanac>()
-            .unwrap()
-            .translate("seed", "location", 14),
-        Ok(43)
+        TEST_INPUT.parse::<Almanac>().unwrap().translate(
+            "seed",
+            "location",
+            Range { first: 79, len: 1 }
+        ),
+        Ok(vec![Range { first: 82, len: 1 }])
     );
     assert_eq!(
-        TEST_INPUT
-            .parse::<Almanac>()
-            .unwrap()
-            .translate("seed", "location", 55),
-        Ok(86)
+        TEST_INPUT.parse::<Almanac>().unwrap().translate(
+            "seed",
+            "location",
+            Range { first: 14, len: 1 }
+        ),
+        Ok(vec![Range { first: 43, len: 1 }])
     );
     assert_eq!(
-        TEST_INPUT
-            .parse::<Almanac>()
-            .unwrap()
-            .translate("seed", "location", 13),
-        Ok(35)
+        TEST_INPUT.parse::<Almanac>().unwrap().translate(
+            "seed",
+            "location",
+            Range { first: 55, len: 1 }
+        ),
+        Ok(vec![Range { first: 86, len: 1 }])
+    );
+    assert_eq!(
+        TEST_INPUT.parse::<Almanac>().unwrap().translate(
+            "seed",
+            "location",
+            Range { first: 13, len: 1 }
+        ),
+        Ok(vec![Range { first: 35, len: 1 }])
     );
 }
 
-fn part1(input: &str) -> u32 {
+// fn part1(input: &str) -> u64 {
+//     let almanac: Almanac = input.parse().unwrap();
+
+//     almanac
+//         .seeds
+//         .iter()
+//         .map(|seed| almanac.translate("seed", "location", *seed).unwrap())
+//         .min()
+//         .unwrap()
+// }
+
+// #[test]
+// fn test_part1() {
+//     assert_eq!(part1(TEST_INPUT), 35);
+// }
+
+fn part2(input: &str) -> u64 {
     let almanac: Almanac = input.parse().unwrap();
-    
-    almanac.seeds.iter().map(|seed| almanac.translate("seed", "location", *seed).unwrap()).min().unwrap()
+
+    almanac
+        .seeds
+        .iter()
+        .flat_map(|seed| almanac.translate("seed", "location", seed.clone()).unwrap())
+        .map(|loc_range| loc_range.first)
+        .min()
+        .unwrap()
 }
 
 #[test]
-fn test_part1() {
-    assert_eq!(part1(TEST_INPUT), 35);
+fn test_part2() {
+    assert_eq!(part2(TEST_INPUT), 46);
 }
 
 const REAL_INPUT: &str = r#"seeds: 3429320627 235304036 1147330745 114559245 1684000747 468955901 677937579 96599505 1436970021 26560102 3886049334 159534901 936845926 25265009 3247146679 95841652 3696363517 45808572 2319065313 125950148
@@ -460,5 +713,5 @@ humidity-to-location map:
 2502359673 3322472440 23907387"#;
 
 fn main() {
-    println!("part 1: {}", part1(REAL_INPUT));
+    println!("part 2: {}", part2(REAL_INPUT));
 }
