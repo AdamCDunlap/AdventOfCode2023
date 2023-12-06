@@ -1,5 +1,3 @@
-use std::sync::atomic::ATOMIC_USIZE_INIT;
-
 fn parse_numbers(s: &str) -> Vec<u64> {
     s.split(' ').filter_map(|n| n.parse().ok()).collect()
 }
@@ -11,6 +9,8 @@ struct Race {
 
 fn parse_races(s: &str) -> Vec<Race> {
     let mut lines = s.lines();
+    // Just take the numbers, space separated, ignoring anything
+    // else including the parts that say "Time:" and "Distance:".
     let times = parse_numbers(lines.next().unwrap());
     let distances = parse_numbers(lines.next().unwrap());
     times
@@ -51,15 +51,21 @@ fn minmax_charge_to_win(race: &Race) -> (u64, u64) {
     let sqrt_discriminant = ((race.time * race.time - 4 * race.distance) as f64).sqrt();
     let min = (race.time as f64 - sqrt_discriminant) / 2.0;
     let max = (race.time as f64 + sqrt_discriminant) / 2.0;
-    let mut int_min = min.ceil();
-    if int_min == min {
-        int_min += 1.0;
+
+    // Take the roots and find integer inequalities. If the roots aren't exact integers,
+    // then floor/ceil is fine. If they are exact integers, then take the "next" integer
+    // to satisfy the inequality
+    let mut min_int = min.ceil();
+    if min_int == min {
+        min_int += 1.0;
     }
-    let mut int_max = max.floor();
-    if int_max == max {
-        int_max -= 1.0;
+
+    let mut max_int = max.floor();
+    if max_int == max {
+        max_int -= 1.0;
     }
-    (int_min as u64, int_max as u64)
+
+    (min_int as u64, max_int as u64)
 }
 
 #[test]
@@ -119,6 +125,10 @@ Distance:  9  40  200"#;
 const REAL_INPUT1: &str = r#"Time:        55     82     64     90
 Distance:   246   1441   1012   1111"#;
 
+// Manually remove the "kerning" for part2. Slightly inelegant but
+// much easier given that the parser is already sketchy and this
+// means no code changes are required (except changing everything
+// to u64)
 const TEST_INPUT2: &str = r#"Time:      71530
 Distance:  940200"#;
 
