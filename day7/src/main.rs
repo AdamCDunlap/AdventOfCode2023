@@ -1,10 +1,11 @@
+use core::num;
 use std::{cmp::Ordering, collections::HashMap, str::FromStr};
 
 fn card_to_value(card: u8) -> u8 {
     match card {
         b'2'..=b'9' => card - b'0',
         b'T' => 10,
-        b'J' => 11,
+        b'J' => 1, // Part 2 says J is Joker and only worth 1
         b'Q' => 12,
         b'K' => 13,
         b'A' => 14,
@@ -45,6 +46,7 @@ impl FromStr for Hand {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut parts = s.split_whitespace();
         let hand = parts.next().ok_or(())?.to_string();
+        assert_eq!(hand.len(), 5);
         let bid = parts.next().ok_or(())?.parse().map_err(|_| ())?;
         if parts.next().is_some() {
             return Err(());
@@ -66,26 +68,52 @@ enum Type {
 
 impl Hand {
     fn find_type(&self) -> Type {
-        let mut counts = HashMap::new();
+        let mut counts: HashMap<u8, u32> = HashMap::new();
+        let mut num_jokers = 0;
         for ch in self.hand.bytes() {
-            *counts.entry(ch).or_default() += 1;
+            if ch == b'J' {
+                num_jokers += 1;
+            } else {
+                *counts.entry(ch).or_default() += 1;
+            }
         }
-        match counts.len() {
-            1 => Type::FiveOfAKind,
-            5 => Type::HighCard,
-            4 => Type::OnePair,
-            2 => match counts.iter().next().unwrap().1 {
-                1 | 4 => Type::FourOfAKind,
-                2 | 3 => Type::FullHouse,
-                _ => unreachable!(),
-            },
-            3 => {
-                let mut iter = counts.iter();
-                match (iter.next().unwrap().1, iter.next().unwrap().1) {
-                    (1, 1) | (3, _) | (_, 3) => Type::ThreeOfAKind,
-                    _ => Type::TwoPair,
+        if counts.len() <= 1 {
+            return Type::FiveOfAKind;
+        }
+
+        let mut best_counts: Vec<u32> = counts.values().cloned().collect();
+        // Sort so highest numbers are at the start
+        best_counts.sort_by(|a, b| b.cmp(a));
+        match (best_counts[0], best_counts[1]) {
+            (4, 1) => Type::FourOfAKind,
+            (3, 1) => {
+                if num_jokers == 1 {
+                    Type::FourOfAKind
+                } else {
+                    Type::ThreeOfAKind
                 }
             }
+            (3, 2) => Type::FullHouse,
+            (2, 2) => {
+                if num_jokers == 1 {
+                    Type::FullHouse
+                } else {
+                    Type::TwoPair
+                }
+            }
+            (2, 1) => match num_jokers {
+                0 => Type::OnePair,
+                1 => Type::ThreeOfAKind,
+                2 => Type::FourOfAKind,
+                _ => unreachable!(),
+            },
+            (1, 1) => match num_jokers {
+                0 => Type::HighCard,
+                1 => Type::OnePair,
+                2 => Type::ThreeOfAKind,
+                3 => Type::FourOfAKind,
+                _ => unreachable!(),
+            },
             _ => unreachable!(),
         }
     }
@@ -107,7 +135,7 @@ fn test_find_type() {
             bid: 0
         }
         .find_type(),
-        Type::ThreeOfAKind
+        Type::FourOfAKind
     );
     assert_eq!(
         Hand {
@@ -123,7 +151,7 @@ fn test_find_type() {
             bid: 0
         }
         .find_type(),
-        Type::TwoPair
+        Type::FourOfAKind
     );
     assert_eq!(
         Hand {
@@ -131,7 +159,7 @@ fn test_find_type() {
             bid: 0
         }
         .find_type(),
-        Type::ThreeOfAKind
+        Type::FourOfAKind
     );
     assert_eq!(
         Hand {
@@ -139,7 +167,7 @@ fn test_find_type() {
             bid: 0
         }
         .find_type(),
-        Type::FourOfAKind
+        Type::FiveOfAKind
     );
     assert_eq!(
         Hand {
@@ -180,6 +208,7 @@ impl PartialOrd for Hand {
 }
 
 #[test]
+#[ignore = "Only works for part 1"]
 fn test_hand_ordering() {
     let mut cards: CamelCards = TEST_INPUT.parse().unwrap();
     cards.hands.sort();
@@ -190,7 +219,7 @@ fn test_hand_ordering() {
     assert_eq!(cards.hands[4].hand, "QQQJA");
 }
 
-fn part1(s: &str) -> u32 {
+fn part2(s: &str) -> u32 {
     let mut cards: CamelCards = s.parse().unwrap();
     cards.hands.sort();
     cards
@@ -202,12 +231,12 @@ fn part1(s: &str) -> u32 {
 }
 
 #[test]
-fn test_part1() {
-    assert_eq!(part1(TEST_INPUT), 6440);
+fn test_part2() {
+    assert_eq!(part2(TEST_INPUT), 5905);
 }
 
 fn main() {
-    println!("part 1: {}", part1(REAL_INPUT));
+    println!("part 2: {}", part2(REAL_INPUT));
 }
 
 const TEST_INPUT: &str = "32T3K 765
