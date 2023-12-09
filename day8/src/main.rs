@@ -1,5 +1,13 @@
+use nom::character::complete::char;
+use nom::{
+    bytes::complete::{tag, take_while1},
+    sequence::{delimited, separated_pair},
+};
 use num::integer::lcm;
-use std::{collections::{HashMap, HashSet}, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 #[derive(PartialEq, Eq, Debug)]
 struct Map {
@@ -23,16 +31,34 @@ impl FromStr for Maps {
         Ok(Maps {
             directions,
             maps: lines
-                .map(|l| {
-                    let mut eqsplit = l.split('=');
-                    let src = eqsplit.next().ok_or(())?.trim().to_string();
-                    let dst = eqsplit.next().ok_or(())?.trim();
-                    let mut commasplit = dst.split(',');
-                    let left = commasplit.next().ok_or(())?.trim()[1..].to_string();
-                    let right = commasplit.next().ok_or(())?.trim();
-                    let right = right[..right.len() - 1].to_string();
-
-                    Ok((src, Map { left, right }))
+                .map(|l| -> Result<(String, Map), ()> {
+                    let mut combinator = separated_pair(
+                        take_while1(char::is_alphanumeric),
+                        tag(" = "),
+                        delimited(
+                            char('('),
+                            separated_pair(
+                                take_while1(char::is_alphanumeric),
+                                tag(", "),
+                                take_while1(char::is_alphanumeric),
+                            ),
+                            char(')'),
+                        ),
+                    );
+                    match combinator(l) {
+                        Ok((_, (src, (left, right)))) => Ok((
+                            src.to_string(),
+                            Map {
+                                left: left.to_string(),
+                                right: right.to_string(),
+                            },
+                        )),
+                        Err(e) => {
+                            let e: nom::Err<()> = e;
+                            dbg!(e);
+                            Err(())
+                        }
+                    }
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?,
         })
