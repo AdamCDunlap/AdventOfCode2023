@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 #[derive(Debug, PartialEq, Eq)]
 enum AocError {
@@ -7,16 +7,48 @@ enum AocError {
     InvalidSpringType,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 enum Spring {
     Broken,
     Operational,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct Record {
     springs: Vec<Option<Spring>>,
     group_lens: Vec<usize>,
+    ends_in_group: bool,
+}
+
+impl Display for Record {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write;
+        f.write_char('"')?;
+        for sp in self.springs.iter() {
+            f.write_char(match sp {
+                Some(Spring::Broken) => '#',
+                Some(Spring::Operational) => '.',
+                None => '?',
+            })?;
+        }
+
+        f.write_char(' ')?;
+
+        for (i, l) in self.group_lens.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            f.write_fmt(format_args!("{}", l))?;
+        }
+
+        if self.ends_in_group {
+            f.write_char('+')?;
+        }
+
+        f.write_char('"')?;
+
+        Ok(())
+    }
 }
 
 impl FromStr for Record {
@@ -49,81 +81,101 @@ impl FromStr for Record {
         Ok(Record {
             springs,
             group_lens,
+            ends_in_group: false,
         })
     }
 }
 
-fn could_work(group_lens: &Vec<usize>, springs: &mut Vec<Option<Spring>>) -> Option<bool> {
-    let mut group_num = 0;
-    let mut group_len = None;
-    for sp in springs.iter() {
-        match (&sp, &mut group_len) {
-            (Some(Spring::Broken), Some(len)) => {
-                *len += 1;
-            }
-            (Some(Spring::Broken), None) => group_len = Some(1),
-            (Some(Spring::Operational), None) => (),
-            (Some(Spring::Operational), Some(len)) => {
-                if group_lens.get(group_num) != Some(&len) {
-                    return Some(false);
-                } else {
-                    group_len = None;
-                    group_num += 1;
-                }
-            }
-            (None, Some(cur_len)) => {
-                let Some(&expected_len) = group_lens.get(group_num) else {
-                    return Some(false);
-                };
-                if expected_len < *cur_len {
-                    return Some(false);
-                } else {
-                    return None;
-                }
-            }
-            (None, None) => return None,
-        }
-    }
-
-    if let Some(len) = group_len {
-        if group_lens.get(group_num) != Some(&len) {
-            return Some(false);
-        }
-        group_num += 1;
-    }
-
-    if group_lens.len() != group_num {
-        return Some(false);
-    }
-
-    Some(true)
-}
-
 impl Record {
-    fn num_working(mut self) -> usize {
-        fn inner(group_lens: &Vec<usize>, springs: &mut Vec<Option<Spring>>) -> usize {
-            if let Some(first_unknown_pos) = springs.iter_mut().position(|s| s.is_none()) {
-                let mut num: usize = 0;
-                springs[first_unknown_pos] = Some(Spring::Broken);
+    fn num_working_uncached(mut self, cache: &mut HashMap<Record, usize>, depth: usize) -> usize {
+        // println!("{}Starting with {}", " ".repeat(depth), self);
+        // Trim non-unknowns off the end
+        loop {
+            // print!("{}Looping. cur: {}", " ".repeat(depth), self);
+            match self.springs.pop() {
+                Some(Some(Spring::Operational)) => {
+                    // A 0 means that the last group was "used up" but not "ended" by seeing
+                    // another operational spring. If we see that, then pop it off since the
+                    // group has ended upon seeing this.
+                    if self.group_lens.last() == Some(&0) {
+                        if !self.ends_in_group {
+                            // println!("-> failure, not in a group, but last was 0");
+                            return 0;
+                        }
+                        self.group_lens.pop().unwrap();
+                        self.ends_in_group = false;
+                    } else if self.ends_in_group {
+                        // println!("-> failure, in a group, but last was not 0");
+                        return 0;
+                    }
+                }
+                Some(Some(Spring::Broken)) => {
+                    let Some(last_len) = self.group_lens.last_mut() else {
+                        // There's a broken spring, but no group lens left, so this configuration is impossible.
+                        // println!(" -> failure since group_lens is empty");
+                        return 0;
+                    };
+                    if *last_len == 0 {
+                        // A 0 means that the last group was "used up" but not "ended" by seeing another operational spring.
+                        // println!(" -> failure since group_lens.last == 0");
+                        return 0;
+                    }
+                    self.ends_in_group = true;
+                    *last_len -= 1;
+                }
+                Some(None) => {
+                    // The last item popped was an unknown. Continue below the loop to limit indentation
+                    break;
+                }
+                None => {
+                    // We hit the end of the springs list without hitting any unknowns, so we can give an immediate answer.
 
-                if !matches!(could_work(group_lens, springs), Some(false)) {
-                    num += inner(group_lens, springs);
-                }
-                springs[first_unknown_pos] = Some(Spring::Operational);
-                if !matches!(could_work(group_lens, springs), Some(false)) {
-                    num += inner(group_lens, springs);
-                }
-                springs[first_unknown_pos] = None;
-                num
-            } else {
-                if could_work(group_lens, springs).unwrap() {
-                    1
-                } else {
-                    0
+                    return if self.group_lens.is_empty()
+                        || (self.group_lens.len() == 1 && self.group_lens[0] == 0)
+                    {
+                        // println!("-> success");
+                        1
+                    } else {
+                        // println!("-> failure, out of springs");
+                        0
+                    };
                 }
             }
+            // println!();
         }
-        inner(&self.group_lens, &mut self.springs)
+
+        // println!(" -> recursing");
+
+        // The last item popped was an unknown.
+        let mut result = 0;
+        self.springs.push(Some(Spring::Operational));
+        result += self.num_working_cached(cache, depth + 2);
+        *self.springs.last_mut().unwrap() = Some(Spring::Broken);
+        result += self.num_working_cached(cache, depth + 2);
+
+        *self.springs.last_mut().unwrap() = None;
+        // println!(
+        //     "{}Done recursing; {} returned {}",
+        //     " ".repeat(depth),
+        //     self,
+        //     result
+        // );
+
+        result
+    }
+
+    fn num_working_cached(&self, cache: &mut HashMap<Record, usize>, depth: usize) -> usize {
+        if let Some(result) = cache.get(self) {
+            // println!("{}Got from cache {} -> {}", " ".repeat(depth), self, result);
+            return *result;
+        }
+        let result = self.clone().num_working_uncached(cache, depth + 2);
+        cache.insert(self.clone(), result);
+        result
+    }
+
+    fn num_working(&self) -> usize {
+        self.num_working_cached(&mut HashMap::new(), 0)
     }
 
     fn repeat(self, times: usize) -> Self {
@@ -131,6 +183,7 @@ impl Record {
         let Record {
             springs,
             group_lens,
+            ends_in_group: _,
         } = self;
         let mut new_springs = springs.clone();
         for _ in 0..times - 1 {
@@ -147,6 +200,7 @@ impl Record {
                 .cycle()
                 .take(group_lens_len * times)
                 .collect(),
+            ends_in_group: false,
         }
     }
 }
@@ -205,7 +259,7 @@ fn test_num_working_basecase() {
 }
 
 #[test]
-fn test_num_working() {
+fn test_num_working_full() {
     assert_eq!("???.### 1,1,3".parse::<Record>().unwrap().num_working(), 1);
     assert_eq!(
         ".??..??...?##. 1,1,3"
@@ -235,6 +289,9 @@ fn test_num_working() {
             .num_working(),
         4
     );
+    assert_eq!("??? 2".parse::<Record>().unwrap().num_working(), 2);
+    assert_eq!("???? 2".parse::<Record>().unwrap().num_working(), 3);
+    assert_eq!("?###????? 3,2".parse::<Record>().unwrap().num_working(), 3);
     assert_eq!(
         "?###???????? 3,2,1"
             .parse::<Record>()
@@ -262,20 +319,6 @@ fn test_p2() {
             .num_working(),
         506250
     );
-}
-
-fn get_known_answers(prev_output: &str) -> HashMap<usize, usize> {
-    prev_output
-        .lines()
-        .filter(|l| l.starts_with("Finished"))
-        .map(|l| {
-            let nums = l
-                .split_whitespace()
-                .filter_map(|word| word.trim_end_matches(':').parse().ok())
-                .collect::<Vec<usize>>();
-            (nums[0], nums[1])
-        })
-        .collect()
 }
 
 fn process_all(input: &str, times: usize, known_answers: &HashMap<usize, usize>) -> usize {
@@ -313,8 +356,7 @@ fn part2(input: &str, known_p2_answers: &HashMap<usize, usize>) -> usize {
 }
 
 fn main() {
-    let known_p2_answers = get_known_answers(include_str!("known_p2_answers.txt"));
     let input = include_str!("real_input.txt");
-    // println!("Part 1: {}", part1(input));
-    println!("Part 2: {}", part2(input, &known_p2_answers));
+    println!("Part 1: {}", part1(input));
+    println!("Part 2: {}", part2(input, &HashMap::new()));
 }
