@@ -275,14 +275,9 @@ fn test_part2() {
 }
 
 fn main() {
-    println!(
-        "part 1: {:?}",
-        part1(include_str!("real_input.txt")).unwrap()
-    );
-    println!(
-        "part 2: {:?}",
-        part2(include_str!("real_input.txt")).unwrap()
-    );
+    let input = &std::fs::read_to_string("input.txt").expect("input.txt should exist");
+    println!("part 1: {:?}", part1(input).unwrap());
+    println!("part 2: {:?}", part2(input).unwrap());
 }
 
 const TEST_INPUT1: &str = r#"-L|F7

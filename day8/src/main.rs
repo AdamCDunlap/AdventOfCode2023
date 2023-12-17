@@ -6,6 +6,7 @@ use nom::{
 use num::integer::lcm;
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     str::FromStr,
 };
 
@@ -187,8 +188,10 @@ fn test_part2() {
 }
 
 fn main() {
-    println!("Part 1: {}", part1(REAL_INPUT));
-    println!("Part 2: {}", part2(REAL_INPUT));
+    let input = &fs::read_to_string("input.txt").expect("input.txt should exist");
+
+    println!("Part 1: {}", part1(input));
+    println!("Part 2: {}", part2(input));
 }
 
 const TEST_INPUT1: &str = r#"RL
@@ -217,5 +220,3 @@ const TEST_INPUT3: &str = r#"LR
 22C = (22Z, 22Z)
 22Z = (22B, 22B)
 XXX = (XXX, XXX)"#;
-
-const REAL_INPUT: &str = include_str!("real_input.txt");

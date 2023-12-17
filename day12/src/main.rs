@@ -331,17 +331,17 @@ fn process_all(input: &str, times: usize, known_answers: &HashMap<usize, usize>)
                 return known_ans;
             }
             let record = l.parse::<Record>().unwrap().repeat(times);
-            println!(
-                "Processing record {}/{}. {} springs, {} groups, {} unknowns",
-                i,
-                lines.len(),
-                record.springs.len(),
-                record.group_lens.len(),
-                record.springs.iter().filter(|s| s.is_none()).count(),
-            );
+            //println!(
+            //    "Processing record {}/{}. {} springs, {} groups, {} unknowns",
+            //    i,
+            //    lines.len(),
+            //    record.springs.len(),
+            //    record.group_lens.len(),
+            //    record.springs.iter().filter(|s| s.is_none()).count(),
+            //);
 
             let n = record.num_working();
-            println!("Finished {}: {}", i, n);
+            //println!("Finished {}: {}", i, n);
             n
         })
         .sum()
@@ -356,7 +356,7 @@ fn part2(input: &str, known_p2_answers: &HashMap<usize, usize>) -> usize {
 }
 
 fn main() {
-    let input = include_str!("real_input.txt");
+    let input = &std::fs::read_to_string("input.txt").expect("input.txt should exist");
     println!("Part 1: {}", part1(input));
     println!("Part 2: {}", part2(input, &HashMap::new()));
 }

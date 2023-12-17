@@ -76,12 +76,11 @@ fn test_part2() {
 }
 
 fn main() {
-    println!("Part 1: {}", part1(REAL_INPUT));
-    println!("Part 2: {}", part2(REAL_INPUT));
+    let input = &std::fs::read_to_string("input.txt").expect("input.txt should exist");
+    println!("Part 1: {}", part1(input));
+    println!("Part 2: {}", part2(input));
 }
 
 const TEST_INPUT: &str = r#"0 3 6 9 12 15
 1 3 6 10 15 21
 10 13 16 21 30 45"#;
-
-const REAL_INPUT: &str = include_str!("real_input.txt");

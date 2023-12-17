@@ -115,22 +115,18 @@ fn test_part2() {
 }
 
 fn main() {
-    println!("part 1: {}", part1(REAL_INPUT1));
-    println!("part 2: {}", part1(REAL_INPUT2));
+    let input1 = &std::fs::read_to_string("input1.txt").expect("input1.txt should exist");
+    println!("part 1: {}", part1(input1));
+// Manually remove the "kerning" for part2. Slightly inelegant but
+// much easier given that the parser is already sketchy and this
+// means no code changes are required (except changing everything
+// to u64)
+    let input2 = &std::fs::read_to_string("input2.txt").expect("input2.txt should exist");
+    println!("part 2: {}", part1(input2));
 }
 
 const TEST_INPUT1: &str = r#"Time:      7  15   30
 Distance:  9  40  200"#;
 
-const REAL_INPUT1: &str = r#"Time:        55     82     64     90
-Distance:   246   1441   1012   1111"#;
-
-// Manually remove the "kerning" for part2. Slightly inelegant but
-// much easier given that the parser is already sketchy and this
-// means no code changes are required (except changing everything
-// to u64)
 const TEST_INPUT2: &str = r#"Time:      71530
 Distance:  940200"#;
-
-const REAL_INPUT2: &str = r#"Time:        55826490
-Distance:   246144110121111"#;

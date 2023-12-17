@@ -169,7 +169,7 @@ fn test_part2() {
 }
 
 fn main() {
-    let input = include_str!("real_input.txt");
+    let input = &std::fs::read_to_string("input.txt").expect("input.txt should exist");
     println!("Part 1: {}", part1(input));
     println!("Part 2: {}", part2(input));
 }
