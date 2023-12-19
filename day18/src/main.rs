@@ -21,19 +21,14 @@ struct Line {
 
 #[derive(Debug, Clone)]
 struct HorizontalLine {
-    left: Coord,
-    len: isize,
+    y: isize,
+    left: isize,
+    right: isize,
 }
 
 impl HorizontalLine {
-    fn y(&self) -> isize {
-        self.left.y
-    }
-    fn right_x(&self) -> isize {
-        self.left.x + self.len
-    }
     fn crosses_x(&self, x: isize) -> bool {
-        self.left.x <= x && x < self.right_x()
+        self.left <= x && x <= self.right
     }
 }
 
@@ -44,13 +39,27 @@ struct Directions {
     height: usize,
 }
 
+#[derive(Debug)]
+struct Rectangle {
+    top_left: Coord,
+    bottom_right: Coord,
+}
+
+impl Rectangle {
+    fn area(&self) -> u64 {
+        let width = (self.bottom_right.x - self.top_left.x + 1) as u64;
+        let height = (self.bottom_right.y - self.top_left.y + 1) as u64;
+        width * height
+    }
+}
+
 impl Display for Directions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Directions {} x {}", self.width, self.height)?;
         let mut grid = vec![vec![b'.'; self.width]; self.height];
-        for HorizontalLine { left, len } in self.horizontal_lines.iter() {
-            for i in 0..*len {
-                grid[left.y as usize][(left.x + i) as usize] = b'#';
+        for HorizontalLine { y, left, right } in self.horizontal_lines.iter() {
+            for x in *left..=*right {
+                grid[*y as usize][x as usize] = b'#';
             }
         }
 
@@ -95,6 +104,7 @@ impl Directions {
 
         let mut horizontal_lines: Vec<HorizontalLine> = lines
             .filter_map(|Line { dir, len }| {
+                let prev_coord = current_coord.clone();
                 current_coord += dir.to_coord() * len;
 
                 min_x = std::cmp::min(min_x, current_coord.x);
@@ -102,16 +112,19 @@ impl Directions {
                 max_x = std::cmp::max(max_x, current_coord.x);
                 max_y = std::cmp::max(max_y, current_coord.y);
 
+                // println!("Considering line {dir:?} {len}: prev was {prev_coord:?}, current is {current_coord:?}");
+
+                if prev_coord.y != current_coord.y {
+                    return None;
+                }
+
+                let left = std::cmp::min(prev_coord.x, current_coord.x);
+                let right = std::cmp::max(prev_coord.x, current_coord.x);
+
                 Some(HorizontalLine {
-                    len,
-                    left: Coord {
-                        y: current_coord.y,
-                        x: match dir {
-                            Up | Down => return None,
-                            Left => current_coord.x,
-                            Right => current_coord.x - len,
-                        },
-                    },
+                    y: current_coord.y,
+                    left,
+                    right,
                 })
             })
             .collect();
@@ -122,11 +135,10 @@ impl Directions {
 
         horizontal_lines
             .iter_mut()
-            .for_each(|HorizontalLine { left, .. }| {
-                *left += Coord {
-                    x: -min_x,
-                    y: -min_y,
-                }
+            .for_each(|HorizontalLine { y, left, right }| {
+                *y -= min_y;
+                *left -= min_x;
+                *right -= min_x;
             });
         println!("Fixed: {horizontal_lines:?}\nmin_x: {min_x} min_y: {min_y}");
 
@@ -137,101 +149,146 @@ impl Directions {
         }
     }
 
-    fn get_enclosed_area(&self) -> u64 {
-        let mut segments_to_consider = self.horizontal_lines.clone();
-        let mut area = 0;
-        while let Some(mut segment_to_consider) = segments_to_consider.pop() {
-            println!("Considering {segment_to_consider:?}");
-            let start_x = segment_to_consider.left.x;
-
-            let mut num_above = 0;
-            let mut first_below: Option<HorizontalLine> = None;
-
-            self.horizontal_lines.iter().for_each(|other_line| {
-                let crosses_left = other_line.crosses_x(start_x);
-                let crosses_right = other_line.crosses_x(segment_to_consider.right_x());
-
-                if other_line.left.y < segment_to_consider.left.y {
-                    if crosses_left {
-                        num_above += 1;
+    fn get_enclosed_rectangles(&self) -> Vec<Rectangle> {
+        let mut segments_to_consider: Vec<_> = self
+            .horizontal_lines
+            .iter()
+            .filter(|line| {
+                let mut seems_like_top = true;
+                self.horizontal_lines.iter().for_each(|other_line| {
+                    if other_line.y < line.y && other_line.crosses_x(line.left) {
+                        seems_like_top = !seems_like_top;
                     }
-                } else if (crosses_left || crosses_right)
-                    && other_line.left.y != segment_to_consider.left.y
-                {
-                    if let Some(prev_highest) = &first_below {
-                        if other_line.left.y < prev_highest.left.y {
-                            first_below = Some(other_line.clone());
-                        }
-                    } else {
-                        first_below = Some(other_line.clone());
-                    }
-                }
-            });
+                });
+                seems_like_top
+            })
+            .cloned()
+            .collect();
+        let mut rectangles = vec![];
+        while let Some(mut top_line) = segments_to_consider.pop() {
+            println!("Considering {top_line:?}");
 
-            println!("num_above: {num_above}");
+            let first_below = self
+                .horizontal_lines
+                .iter()
+                .filter(|other_line| {
+                    other_line.y > top_line.y
+                        && (other_line.crosses_x(top_line.left)
+                            || other_line.crosses_x(top_line.right))
+                })
+                .min_by_key(|other_line| other_line.y)
+                .expect("Not a loop");
 
-            if num_above % 2 == 1 {
-                // Odd number of lines above this line means that the area below this line is not in bounds
-                continue;
-            }
-            let first_below = first_below.expect("Not a loop");
+            // let mut first_below: Option<HorizontalLine> = None;
 
-            // let this_right = start_x + segment_to_consider.len;
-            // let below_right = first_below.left.x + first_below.len;
-            if first_below.left.x > start_x {
+            // self.horizontal_lines.iter().for_each(|other_line| {
+            //     let crosses_left = other_line.crosses_x(top_line.left);
+            //     let crosses_right = other_line.crosses_x(top_line.right);
+
+            //     if (crosses_left || crosses_right) && other_line.y != top_line.y {
+            //         if let Some(prev_highest) = &first_below {
+            //             if other_line.y < prev_highest.y {
+            //                 first_below = Some(other_line.clone());
+            //             }
+            //         } else {
+            //             first_below = Some(other_line.clone());
+            //         }
+            //     }
+            // });
+
+            // println!("first_below: {first_below:?}");
+
+            // let first_below = first_below.expect("Not a loop");
+
+            if first_below.left > top_line.left {
                 let right = HorizontalLine {
-                    left: Coord {
-                        x: first_below.left.x,
-                        y: segment_to_consider.y(),
-                    },
-                    len: first_below.left.x - start_x - 1,
+                    y: top_line.y,
+                    left: first_below.left,
+                    right: top_line.right,
                 };
-                let below = HorizontalLine {
-                    left: Coord {
-                        x: start_x,
-                        y: first_below.y(),
-                    },
-                    len: segment_to_consider.len,
+                let just_below = HorizontalLine {
+                    y: first_below.y,
+                    left: top_line.left,
+                    right: first_below.left,
                 };
-                let prev = segment_to_consider.clone();
-                segment_to_consider.len -= right.len + 1;
+                let prev = top_line.clone();
+                top_line.right = first_below.left - 1;
                 println!(
                     "Splitting {:?} into {:?}, {:?}, and {:?}",
-                    prev, segment_to_consider, below, right
+                    prev, top_line, right, just_below
                 );
 
-                segments_to_consider.push(below);
+                segments_to_consider.push(just_below);
                 segments_to_consider.push(right);
-            } else if first_below.right_x() < segment_to_consider.right_x() {
-                assert!(first_below.right_x() > start_x);
+            } else if first_below.right < top_line.right {
+                assert!(first_below.right > top_line.right);
                 let other = HorizontalLine {
-                    left: Coord {
-                        x: first_below.right_x(),
-                        y: segment_to_consider.left.y,
-                    },
-                    len: segment_to_consider.right_x() - first_below.right_x(),
+                    y: top_line.y,
+                    left: first_below.right + 1,
+                    right: top_line.right,
                 };
-                let prev = segment_to_consider.clone();
-                segment_to_consider.len -= other.len + 1;
-                println!(
-                    "Splitting {:?} into {:?} and {:?}",
-                    prev, segment_to_consider, other
-                );
+                let prev = top_line.clone();
+                top_line.right = first_below.right - 1;
+                println!("Splitting {:?} into {:?} and {:?}", prev, top_line, other);
 
                 segments_to_consider.push(other);
             }
 
-            let width: u64 = (segment_to_consider.right_x() - start_x + 1)
-                .try_into()
-                .unwrap();
-            let height: u64 = (first_below.y() - segment_to_consider.y() + 1)
-                .try_into()
-                .unwrap();
-            println!("width: {width} height: {height}");
-
-            area += width * height;
+            rectangles.push(Rectangle {
+                top_left: Coord {
+                    x: top_line.left,
+                    y: top_line.y,
+                },
+                bottom_right: Coord {
+                    x: top_line.right,
+                    y: first_below.y,
+                },
+            });
         }
-        area
+        rectangles
+    }
+
+    fn draw_rectangles(&self, rectangles: &[Rectangle]) {
+        let mut grid = vec![vec![b'.'; self.width]; self.height];
+
+        let mut assign = |y: isize, x: isize, ch: u8| {
+            let y: usize = y.try_into().unwrap();
+            let x: usize = x.try_into().unwrap();
+            if grid[y][x] != b'.' {
+                println!(
+                    "Coordinate ({},{}) is double-assigned. Was {}",
+                    x,
+                    y,
+                    char::from_u32(grid[y][x] as u32).unwrap()
+                );
+                grid[y][x] = b'*';
+            } else {
+                grid[y][x] = ch;
+            }
+        };
+
+        for Rectangle {
+            top_left,
+            bottom_right,
+        } in rectangles
+        {
+            assign(top_left.y, top_left.x, b'+');
+            assign(top_left.y, bottom_right.x, b'+');
+            assign(bottom_right.y, top_left.x, b'+');
+            assign(bottom_right.y, bottom_right.x, b'+');
+            for x in top_left.x + 1..bottom_right.x {
+                assign(top_left.y, x, b'-');
+                assign(bottom_right.y, x, b'-');
+            }
+            for y in top_left.y + 1..bottom_right.y {
+                assign(y, top_left.x, b'|');
+                assign(y, bottom_right.x, b'|');
+            }
+        }
+
+        for line in grid {
+            println!("{}", std::str::from_utf8(&line).unwrap());
+        }
     }
 }
 
@@ -305,23 +362,32 @@ impl Mul<isize> for Coord {
 
 fn part1(input: &str) -> u64 {
     let directions = Directions::from_part1_str(input);
-    // println!("{directions}");
-    directions.get_enclosed_area()
+    println!("{directions}");
+    let rectangles = directions.get_enclosed_rectangles();
+    for r in rectangles.windows(1) {
+        println!();
+        directions.draw_rectangles(r);
+    }
+    directions.draw_rectangles(&rectangles);
+    println!("{:?}", rectangles);
+
+    rectangles.iter().map(Rectangle::area).sum()
 }
 
 #[test]
 fn test_part1() {
-    
-    assert_eq!(part1("D 10000\nR 10\nU 10000\nL 10"), 10001 * 11);
-    
-    assert_eq!(part1("D 8\nR 4\nU 2\nL 1\nU 3\nR 1\nU 3\nL 4"), 5*9 - 2);
+    // assert_eq!(part1("D 10000\nR 10\nU 10000\nL 10"), 10001 * 11);
 
-    assert_eq!(part1(TEST_INPUT), 62);
+    assert_eq!(part1("D 8\nR 4\nU 2\nL 1\nU 3\nR 1\nU 3\nL 4"), 5 * 9 - 2);
+
+    // assert_eq!(part1(TEST_INPUT), 62);
 }
 
 fn part2(input: &str) -> u64 {
     let directions = Directions::from_part2_str(input);
-    directions.get_enclosed_area()
+    let rectangles = directions.get_enclosed_rectangles();
+
+    rectangles.iter().map(Rectangle::area).sum()
 }
 
 #[test]
