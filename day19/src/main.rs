@@ -80,6 +80,181 @@ impl RuleCondition {
             Category::S => op(part.s),
         }
     }
+
+    fn get_relevant_num_range_mut<'a>(&'a self, part_range: &'a mut PartRange) -> &'a mut Range {
+        match self.category {
+            Category::X => &mut part_range.x,
+            Category::M => &mut part_range.m,
+            Category::A => &mut part_range.a,
+            Category::S => &mut part_range.s,
+        }
+    }
+    fn get_relevant_num_range<'a>(&'a self, part_range: &'a PartRange) -> &'a Range {
+        match self.category {
+            Category::X => &part_range.x,
+            Category::M => &part_range.m,
+            Category::A => &part_range.a,
+            Category::S => &part_range.s,
+        }
+    }
+
+    fn split_range(&self, part_range: &PartRange) -> (Option<PartRange>, Option<PartRange>) {
+        let relevant_num_range = self.get_relevant_num_range(&part_range);
+
+        let (matching_range, nonmatching_range) = match self.inequality {
+            Inequality::Less => (
+                Range::try_new(
+                    relevant_num_range.min,
+                    std::cmp::min(self.compare_val - 1, relevant_num_range.max),
+                ),
+                Range::try_new(
+                    std::cmp::max(self.compare_val, relevant_num_range.min),
+                    relevant_num_range.max,
+                ),
+            ),
+            Inequality::Greater => (
+                Range::try_new(
+                    std::cmp::max(self.compare_val + 1, relevant_num_range.min),
+                    relevant_num_range.max,
+                ),
+                Range::try_new(
+                    relevant_num_range.min,
+                    std::cmp::min(self.compare_val, relevant_num_range.max),
+                ),
+            ),
+        };
+
+        let matching_part_range = if let Some(matching_range) = matching_range {
+            let mut matching_part_range = part_range.clone();
+            *self.get_relevant_num_range_mut(&mut matching_part_range) = matching_range;
+            Some(matching_part_range)
+        } else {
+            None
+        };
+
+        let nonmatching_part_range = if let Some(nonmatching_range) = nonmatching_range {
+            let mut nonmatching_part_range = part_range.clone();
+            *self.get_relevant_num_range_mut(&mut nonmatching_part_range) = nonmatching_range;
+            Some(nonmatching_part_range)
+        } else {
+            None
+        };
+
+        (matching_part_range, nonmatching_part_range)
+    }
+}
+
+#[test]
+fn test_split_range() {
+    let range = Range { min: 1, max: 100 };
+    let part_range = PartRange {
+        workflow_name: "foo".to_string(),
+        x: range.clone(),
+        m: range.clone(),
+        a: range.clone(),
+        s: range.clone(),
+    };
+    assert_eq!(
+        "m<5"
+            .parse::<RuleCondition>()
+            .unwrap()
+            .split_range(&part_range),
+        (
+            Some(PartRange {
+                m: Range { min: 1, max: 4 },
+                ..part_range.clone()
+            }),
+            Some(PartRange {
+                m: Range { min: 5, max: 100 },
+                ..part_range.clone()
+            })
+        )
+    );
+
+    assert_eq!(
+        "m<1"
+            .parse::<RuleCondition>()
+            .unwrap()
+            .split_range(&part_range),
+        (
+            None,
+            Some(PartRange {
+                m: Range { min: 1, max: 100 },
+                ..part_range.clone()
+            })
+        )
+    );
+    assert_eq!(
+        "m<0"
+            .parse::<RuleCondition>()
+            .unwrap()
+            .split_range(&part_range),
+        (
+            None,
+            Some(PartRange {
+                m: Range { min: 1, max: 100 },
+                ..part_range.clone()
+            })
+        )
+    );
+    assert_eq!(
+        "m>0"
+            .parse::<RuleCondition>()
+            .unwrap()
+            .split_range(&part_range),
+        (
+            Some(PartRange {
+                m: Range { min: 1, max: 100 },
+                ..part_range.clone()
+            }),
+            None,
+        )
+    );
+    assert_eq!(
+        "m>1"
+            .parse::<RuleCondition>()
+            .unwrap()
+            .split_range(&part_range),
+        (
+            Some(PartRange {
+                m: Range { min: 2, max: 100 },
+                ..part_range.clone()
+            }),
+            Some(PartRange {
+                m: Range { min: 1, max: 1 },
+                ..part_range.clone()
+            })
+        )
+    );
+    assert_eq!(
+        "m>99"
+            .parse::<RuleCondition>()
+            .unwrap()
+            .split_range(&part_range),
+        (
+            Some(PartRange {
+                m: Range { min: 100, max: 100 },
+                ..part_range.clone()
+            }),
+            Some(PartRange {
+                m: Range { min: 1, max: 99 },
+                ..part_range.clone()
+            })
+        )
+    );
+    assert_eq!(
+        "m>100"
+            .parse::<RuleCondition>()
+            .unwrap()
+            .split_range(&part_range),
+        (
+            None,
+            Some(PartRange {
+                m: Range { min: 1, max: 100 },
+                ..part_range.clone()
+            })
+        )
+    );
 }
 
 #[derive(Debug)]
@@ -208,6 +383,61 @@ impl Workflows {
             }
         }
     }
+
+    fn solve_part2(&self) -> i64 {
+        let mut part_ranges = vec![PartRange {
+            workflow_name: "in".to_string(),
+            x: Range { min: 1, max: 4000 },
+            m: Range { min: 1, max: 4000 },
+            a: Range { min: 1, max: 4000 },
+            s: Range { min: 1, max: 4000 },
+        }];
+
+        let mut num_accepted = 0;
+        while let Some(mut part_range) = part_ranges.pop() {
+            let workflow = self
+                .0
+                .get(&part_range.workflow_name)
+                .expect("No workflow with name {workflow_name}");
+            for rule in workflow {
+                if let Some(condition) = &rule.condition {
+                    let (matching_part_range, nonmatching_part_range) =
+                        condition.split_range(&part_range);
+
+                    if let Some(mut matching_part_range) = matching_part_range {
+                        match &rule.action {
+                            Action::Accept => {
+                                num_accepted += matching_part_range.num_distinct_parts()
+                            }
+                            Action::Reject => (),
+                            Action::NextWorkflow(next_name) => {
+                                matching_part_range.workflow_name = next_name.clone();
+                                part_ranges.push(matching_part_range);
+                            }
+                        }
+                    }
+
+                    if let Some(nonmatching_part_range) = nonmatching_part_range {
+                        part_range = nonmatching_part_range;
+                    } else {
+                        break;
+                    }
+                } else {
+                    match &rule.action {
+                        Action::Accept => num_accepted += part_range.num_distinct_parts(),
+                        Action::Reject => (),
+                        Action::NextWorkflow(next_name) => {
+                            part_range.workflow_name = next_name.clone();
+                            part_ranges.push(part_range);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        num_accepted
+    }
 }
 
 #[derive(Debug)]
@@ -237,7 +467,7 @@ impl FromStr for Puzzle {
 }
 
 impl Puzzle {
-    fn solve(&self) -> i64 {
+    fn solve_part1(&self) -> i64 {
         self.parts
             .iter()
             .filter(|part| self.workflows.check_part(part))
@@ -246,9 +476,45 @@ impl Puzzle {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Range {
+    min: i64,
+    max: i64,
+}
+
+impl Range {
+    fn len(&self) -> i64 {
+        assert!(self.max >= self.min);
+        self.max - self.min + 1
+    }
+
+    fn try_new(min: i64, max: i64) -> Option<Self> {
+        if max >= min {
+            Some(Self { min, max })
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PartRange {
+    workflow_name: String,
+    x: Range,
+    m: Range,
+    a: Range,
+    s: Range,
+}
+
+impl PartRange {
+    fn num_distinct_parts(&self) -> i64 {
+        self.x.len() * self.m.len() * self.a.len() * self.s.len()
+    }
+}
+
 fn part1(input: &str) -> i64 {
     let puzzle: Puzzle = input.parse().unwrap();
-    puzzle.solve()
+    puzzle.solve_part1()
 }
 
 #[test]
@@ -256,10 +522,20 @@ fn test_part1() {
     assert_eq!(part1(TEST_INPUT), 19114);
 }
 
+fn part2(input: &str) -> i64 {
+    let puzzle: Puzzle = input.parse().unwrap();
+    puzzle.workflows.solve_part2()
+}
+
+#[test]
+fn test_part2() {
+    assert_eq!(part2(TEST_INPUT), 167409079868000);
+}
+
 fn main() {
     let input = &std::fs::read_to_string("input.txt").expect("input.txt should exist");
     println!("part 1: {}", part1(input));
-    // println!("part 2: {}", part2(input));
+    println!("part 2: {}", part2(input));
 }
 
 const TEST_INPUT: &str = r"px{a<2006:qkq,m>2090:A,rfg}
