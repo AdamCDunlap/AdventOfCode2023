@@ -16,61 +16,76 @@ use Dir::*;
 #[derive(Debug, Clone)]
 struct UnrootedLine {
     dir: Dir,
-    len: isize,
+    len: i64,
 }
 
 #[derive(Debug, Clone)]
 struct BoundaryLine {
-    top_left: Coord,
-    bottom_right: Coord,
+    left: i64,
+    right: i64,
+    top: i64,
+    bottom: i64,
 }
 
 impl BoundaryLine {
     fn is_horizontal(&self) -> bool {
-        self.top_left.y == self.bottom_right.y
+        self.top == self.bottom
     }
 }
 
 #[derive(Debug)]
 struct Map {
     boundaries: Vec<BoundaryLine>,
-    width: usize,
-    height: usize,
+    bounds: Rectangle,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct Rectangle {
-    top_left: Coord,
-    bottom_right: Coord,
+    left: i64,
+    right: i64,
+    top: i64,
+    bottom: i64,
 }
 
 impl Rectangle {
-    fn area(&self) -> u64 {
-        let width = (self.bottom_right.x - self.top_left.x + 1) as u64;
-        let height = (self.bottom_right.y - self.top_left.y + 1) as u64;
-        width * height
+    fn area(&self) -> i64 {
+        self.width() * self.height()
     }
 
     fn is_valid(&self) -> bool {
-        self.top_left.x <= self.bottom_right.x && self.top_left.y <= self.bottom_right.y
+        self.left <= self.right && self.top <= self.bottom
+    }
+
+    fn width(&self) -> i64 {
+        assert!(self.is_valid());
+        self.right - self.left + 1
+    }
+    fn height(&self) -> i64 {
+        assert!(self.is_valid());
+        self.bottom - self.top + 1
     }
 }
 
 impl Display for Map {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Map {} x {}", self.width, self.height)?;
-        let mut grid = vec![vec!['.'; self.width]; self.height];
+        writeln!(
+            f,
+            "Map {} x {} {:?}",
+            self.bounds.width(),
+            self.bounds.height(),
+            self.bounds
+        )?;
+        let mut grid = vec![vec!['.'; self.bounds.width() as usize]; self.bounds.height() as usize];
         for BoundaryLine {
-            top_left: Coord { x: left, y: top },
-            bottom_right: Coord {
-                x: right,
-                y: bottom,
-            },
+            left,
+            right,
+            top,
+            bottom,
         } in self.boundaries.iter()
         {
             for y in *top..=*bottom {
                 for x in *left..=*right {
-                    grid[y as usize][x as usize] = '#';
+                    grid[(y - self.bounds.top) as usize][(x - self.bounds.left) as usize] = '#';
                 }
             }
         }
@@ -95,7 +110,7 @@ impl Map {
     fn from_part2_str(input: &str) -> Self {
         Self::from_lines(input.lines().map(|line| {
             let dir_code = line.as_bytes()[line.len() - 2];
-            let len = isize::from_str_radix(&line[line.len() - 7..line.len() - 2], 16).unwrap();
+            let len = i64::from_str_radix(&line[line.len() - 7..line.len() - 2], 16).unwrap();
             let dir = match dir_code {
                 b'0' => Right,
                 b'1' => Down,
@@ -114,7 +129,7 @@ impl Map {
         let mut max_y = 0;
         let mut min_y = 0;
 
-        let mut boundaries: Vec<BoundaryLine> = lines
+        let boundaries: Vec<BoundaryLine> = lines
             .filter_map(|UnrootedLine { dir, len }| {
                 let prev_coord = current_coord.clone();
                 current_coord += dir.to_coord() * len;
@@ -124,65 +139,40 @@ impl Map {
                 max_x = std::cmp::max(max_x, current_coord.x);
                 max_y = std::cmp::max(max_y, current_coord.y);
 
-                let top_left = Coord {
-                    x: std::cmp::min(prev_coord.x, current_coord.x),
-                    y: std::cmp::min(prev_coord.y, current_coord.y),
-                };
-                let bottom_right = Coord {
-                    x: std::cmp::max(prev_coord.x, current_coord.x),
-                    y: std::cmp::max(prev_coord.y, current_coord.y),
-                };
-
                 Some(BoundaryLine {
-                    top_left,
-                    bottom_right,
+                    left: std::cmp::min(prev_coord.x, current_coord.x),
+                    right: std::cmp::max(prev_coord.x, current_coord.x),
+                    top: std::cmp::min(prev_coord.y, current_coord.y),
+                    bottom: std::cmp::max(prev_coord.y, current_coord.y),
                 })
             })
             .collect();
 
         assert_eq!(current_coord, Coord { x: 0, y: 0 });
 
-        // println!("Orig:  {horizontal_lines:?}");
-
-        // This is probably unnecessary
-        boundaries.iter_mut().for_each(
-            |BoundaryLine {
-                 top_left,
-                 bottom_right,
-             }| {
-                top_left.y -= min_y;
-                top_left.x -= min_x;
-                bottom_right.y -= min_y;
-                bottom_right.x -= min_x;
-            },
-        );
-        // println!("Fixed: {horizontal_lines:?}\nmin_x: {min_x} min_y: {min_y}");
-
         Self {
             boundaries,
-            width: (max_x - min_x + 1) as usize,
-            height: (max_y - min_y + 1) as usize,
+            bounds: Rectangle {
+                left: min_x,
+                right: max_x,
+                top: min_y,
+                bottom: max_y,
+            },
         }
     }
 
     fn get_possible_rectangles(&self) -> Vec<Rectangle> {
-        let mut rectangles = vec![Rectangle {
-            top_left: Coord { x: 0, y: 0 },
-            bottom_right: Coord {
-                x: self.width as isize - 1,
-                y: self.height as isize - 1,
-            },
-        }];
+        let mut rectangles = vec![self.bounds.clone()];
 
         for boundary in self.boundaries.iter() {
             rectangles = rectangles
                 .into_iter()
                 .flat_map(|orig| {
                     // Optimization: if orig does not at all intersect boundary, do not split
-                    if !(orig.top_left.x <= boundary.bottom_right.x
-                        && orig.bottom_right.x >= boundary.top_left.x
-                        && orig.top_left.y <= boundary.bottom_right.y
-                        && orig.bottom_right.y >= boundary.top_left.y)
+                    if !(orig.left <= boundary.right
+                        && orig.right >= boundary.left
+                        && orig.top <= boundary.bottom
+                        && orig.bottom >= boundary.top)
                     {
                         return vec![orig];
                     }
@@ -190,60 +180,38 @@ impl Map {
                         [
                             // Above the line
                             Rectangle {
-                                top_left: orig.top_left,
-                                bottom_right: Coord {
-                                    x: orig.bottom_right.x,
-                                    y: boundary.top_left.y - 1,
-                                },
+                                bottom: boundary.top - 1,
+                                ..orig
                             },
                             // Overlapping the line
                             Rectangle {
-                                top_left: Coord {
-                                    x: orig.top_left.x,
-                                    y: boundary.top_left.y,
-                                },
-                                bottom_right: Coord {
-                                    x: orig.bottom_right.x,
-                                    y: boundary.bottom_right.y,
-                                },
+                                top: boundary.top,
+                                bottom: boundary.bottom,
+                                ..orig
                             },
                             // Below the line
                             Rectangle {
-                                top_left: Coord {
-                                    x: orig.top_left.x,
-                                    y: boundary.bottom_right.y + 1,
-                                },
-                                bottom_right: orig.bottom_right,
+                                top: boundary.bottom + 1,
+                                ..orig
                             },
                         ]
                     } else {
                         [
                             // Left of the line
                             Rectangle {
-                                top_left: orig.top_left,
-                                bottom_right: Coord {
-                                    x: boundary.top_left.x - 1,
-                                    y: orig.bottom_right.y,
-                                },
+                                right: boundary.left - 1,
+                                ..orig
                             },
                             // Overlapping the line
                             Rectangle {
-                                top_left: Coord {
-                                    x: boundary.top_left.x,
-                                    y: orig.top_left.y,
-                                },
-                                bottom_right: Coord {
-                                    x: boundary.bottom_right.x,
-                                    y: orig.bottom_right.y,
-                                },
+                                left: boundary.left,
+                                right: boundary.right,
+                                ..orig
                             },
                             // Right of line
                             Rectangle {
-                                top_left: Coord {
-                                    x: boundary.bottom_right.x + 1,
-                                    y: orig.top_left.y,
-                                },
-                                bottom_right: orig.bottom_right,
+                                left: boundary.right + 1,
+                                ..orig
                             },
                         ]
                     };
@@ -251,14 +219,10 @@ impl Map {
                     split_candidates
                         .into_iter()
                         .map(|r| Rectangle {
-                            top_left: Coord {
-                                x: std::cmp::max(r.top_left.x, orig.top_left.x),
-                                y: std::cmp::max(r.top_left.y, orig.top_left.y),
-                            },
-                            bottom_right: Coord {
-                                x: std::cmp::min(r.bottom_right.x, orig.bottom_right.x),
-                                y: std::cmp::min(r.bottom_right.y, orig.bottom_right.y),
-                            },
+                            left: std::cmp::max(r.left, orig.left),
+                            top: std::cmp::max(r.top, orig.top),
+                            right: std::cmp::min(r.right, orig.right),
+                            bottom: std::cmp::min(r.bottom, orig.bottom),
                         })
                         .filter(|r| r.is_valid())
                         .collect()
@@ -272,10 +236,10 @@ impl Map {
 
     fn is_point_on_boundary(&self, coord: &Coord) -> bool {
         for boundary in self.boundaries.iter() {
-            if coord.x >= boundary.top_left.x
-                && coord.x <= boundary.bottom_right.x
-                && coord.y >= boundary.top_left.y
-                && coord.y <= boundary.bottom_right.y
+            if coord.x >= boundary.left
+                && coord.x <= boundary.right
+                && coord.y >= boundary.top
+                && coord.y <= boundary.bottom
             {
                 return true;
             }
@@ -292,11 +256,11 @@ impl Map {
 
         for boundary in self.boundaries.iter() {
             if boundary.is_horizontal()
-                && boundary.top_left.x <= coord.x
-                && boundary.bottom_right.x > coord.x
-                && boundary.top_left.y <= coord.y
+                && boundary.left <= coord.x
+                && boundary.right > coord.x
+                && boundary.top <= coord.y
             {
-                assert!(boundary.top_left.y != coord.y);
+                assert!(boundary.top != coord.y);
                 seems_enclosed = !seems_enclosed;
             }
         }
@@ -306,16 +270,21 @@ impl Map {
     fn get_enclosed_rectangles(&self) -> Vec<Rectangle> {
         self.get_possible_rectangles()
             .into_iter()
-            .filter(|r| self.is_point_enclosed(&r.top_left))
+            .filter(|r| {
+                self.is_point_enclosed(&Coord {
+                    x: r.left,
+                    y: r.top,
+                })
+            })
             .collect()
     }
 
     fn draw_rectangles(&self, rectangles: &[Rectangle]) {
-        let mut grid = vec![vec!['.'; self.width]; self.height];
+        let mut grid = vec![vec!['.'; self.bounds.width() as usize]; self.bounds.height() as usize];
 
-        let mut assign = |y: isize, x: isize, ch: char| {
-            let y: usize = y.try_into().unwrap();
-            let x: usize = x.try_into().unwrap();
+        let mut assign = |y: i64, x: i64, ch: char| {
+            let y: usize = (y - self.bounds.top).try_into().unwrap();
+            let x: usize = (x - self.bounds.left).try_into().unwrap();
             if grid[y][x] != '.' {
                 println!(
                     "Coordinate ({},{}) is double-assigned. Was {}",
@@ -328,43 +297,45 @@ impl Map {
         };
 
         for Rectangle {
-            top_left,
-            bottom_right,
-        } in rectangles
+            left,
+            right,
+            top,
+            bottom,
+        } in rectangles.iter().cloned()
         {
-            let width_1 = top_left.x == bottom_right.x;
-            let height_1 = top_left.y == bottom_right.y;
+            let width_1 = left == right;
+            let height_1 = top == bottom;
 
             if width_1 && height_1 {
-                assign(top_left.y, bottom_right.x, '▫');
+                assign(top, right, '▫');
             } else if width_1 {
-                assign(top_left.y, top_left.x, '╓');
-                for y in top_left.y + 1..bottom_right.y {
-                    assign(y, top_left.x, '║');
+                assign(top, left, '╓');
+                for y in top + 1..bottom {
+                    assign(y, left, '║');
                 }
-                assign(bottom_right.y, bottom_right.x, '╙');
+                assign(bottom, right, '╙');
             } else if height_1 {
-                assign(top_left.y, top_left.x, '╘');
-                for x in top_left.x + 1..bottom_right.x {
-                    assign(top_left.y, x, '═');
+                assign(top, left, '╘');
+                for x in left + 1..right {
+                    assign(top, x, '═');
                 }
-                assign(bottom_right.y, bottom_right.x, '╛');
+                assign(bottom, right, '╛');
             } else {
-                assign(top_left.y, top_left.x, '┌');
-                assign(top_left.y, bottom_right.x, '┐');
-                assign(bottom_right.y, top_left.x, '└');
-                assign(bottom_right.y, bottom_right.x, '┘');
-                for x in top_left.x + 1..bottom_right.x {
-                    assign(top_left.y, x, '─');
-                    assign(bottom_right.y, x, '─');
+                assign(top, left, '┌');
+                assign(top, right, '┐');
+                assign(bottom, left, '└');
+                assign(bottom, right, '┘');
+                for x in left + 1..right {
+                    assign(top, x, '─');
+                    assign(bottom, x, '─');
                 }
-                for y in top_left.y + 1..bottom_right.y {
-                    assign(y, top_left.x, '│');
-                    assign(y, bottom_right.x, '│');
+                for y in top + 1..bottom {
+                    assign(y, left, '│');
+                    assign(y, right, '│');
                 }
 
-                for x in top_left.x + 1..bottom_right.x {
-                    for y in top_left.y + 1..bottom_right.y {
+                for x in left + 1..right {
+                    for y in top + 1..bottom {
                         assign(y, x, '█');
                     }
                 }
@@ -379,8 +350,8 @@ impl Map {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 struct Coord {
-    x: isize,
-    y: isize,
+    x: i64,
+    y: i64,
 }
 
 impl Add<Dir> for Coord {
@@ -434,10 +405,10 @@ impl FromStr for Dir {
     }
 }
 
-impl Mul<isize> for Coord {
+impl Mul<i64> for Coord {
     type Output = Coord;
 
-    fn mul(self, rhs: isize) -> Self::Output {
+    fn mul(self, rhs: i64) -> Self::Output {
         Self {
             x: self.x * rhs,
             y: self.y * rhs,
@@ -445,7 +416,7 @@ impl Mul<isize> for Coord {
     }
 }
 
-fn part1(input: &str) -> u64 {
+fn part1(input: &str) -> i64 {
     let map = Map::from_part1_str(input);
 
     println!("{map}");
@@ -453,7 +424,12 @@ fn part1(input: &str) -> u64 {
     map.draw_rectangles(&possible);
     let rectangles: Vec<Rectangle> = possible
         .into_iter()
-        .filter(|r| map.is_point_enclosed(&r.top_left))
+        .filter(|r| {
+            map.is_point_enclosed(&Coord {
+                x: r.left,
+                y: r.top,
+            })
+        })
         .collect();
     println!("=========");
 
@@ -471,7 +447,7 @@ fn test_part1() {
     assert_eq!(part1(TEST_INPUT), 62);
 }
 
-fn part2(input: &str) -> u64 {
+fn part2(input: &str) -> i64 {
     let map = Map::from_part2_str(input);
     let rectangles = map.get_enclosed_rectangles();
 
