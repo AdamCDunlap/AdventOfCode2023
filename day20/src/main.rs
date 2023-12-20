@@ -203,7 +203,7 @@ struct DirectedPulse {
 }
 
 impl Puzzle {
-    fn push_button(&mut self) -> (PulseCount, bool) {
+    fn push_button(&mut self, iteration: u64) -> (PulseCount, bool) {
         let mut pulses = VecDeque::new();
         let mut sent_low_to_rx = false;
         pulses.push_back(DirectedPulse {
@@ -217,6 +217,10 @@ impl Puzzle {
         };
 
         while let Some(DirectedPulse { from, to, pulse }) = pulses.pop_front() {
+            if pulse == Pulse::High && to == "kc" {
+                println!("kc received high pulse from {from} at iteration {iteration}");
+            }
+
             let module = self
                 .modules
                 .get_mut(&to)
@@ -245,8 +249,8 @@ impl Puzzle {
 fn part1(input: &str) -> u64 {
     let mut puzzle: Puzzle = input.parse().unwrap();
     let mut counts = PulseCount { high: 0, low: 0 };
-    for _ in 0..1000 {
-        let this_counts = puzzle.push_button().0;
+    for i in 0..1000 {
+        let this_counts = puzzle.push_button(i).0;
         counts.high += this_counts.high;
         counts.low += this_counts.low;
     }
@@ -265,7 +269,7 @@ fn part2(input: &str) -> u64 {
         if i % 100000 == 0 {
             println!("On iteration {i}");
         }
-        if puzzle.push_button().1 {
+        if puzzle.push_button(i).1 {
             return i;
         }
     }
