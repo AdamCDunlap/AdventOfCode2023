@@ -192,7 +192,7 @@ fn part2(input: &str) -> usize {
 fn play_with(input: &str) {
     let garden = Garden::infinite_from_str(input);
 
-        for (start_point, name) in [
+    for (start_point, name) in [
         (garden.start.clone(), "middle"),
         (Coord { x: 0, y: 0 }, "top left"),
         (
@@ -251,7 +251,6 @@ fn play_with(input: &str) {
         }
         println!("Starting from {name:15} gives {}", coords.len());
     }
-
 
     let start_iteration = 1400;
     let mut coords_after = HashMap::from([(
@@ -334,14 +333,20 @@ fn play_with(input: &str) {
         // assert_eq!(n_in_bounds, np2_in_bounds);
         // assert_eq!(np1_in_bounds, np3_in_bounds);
     }
-
-
 }
 
-fn asdf() {
-    let diamond_size = 202300u64;
+fn num_reachable_after_steps_bruteforce(input: &str, steps: i64) -> u64 {
+    Garden::infinite_from_str(input)
+        .reachable_from_start_after_steps(steps)
+        .len() as u64
+}
+
+fn num_reachable_after_maps_mathy(diamond_size: u64) -> u64 {
+    // let diamond_size = 202300u64;
+    // let diamond_size = 3u64;
     let inner_diamond_size = diamond_size - 1;
-    let num_squares_in_inner_diamond = (inner_diamond_size + 1) * (inner_diamond_size + 1) + inner_diamond_size * inner_diamond_size;
+    let num_squares_in_inner_diamond = (inner_diamond_size + 1) * (inner_diamond_size + 1)
+        + inner_diamond_size * inner_diamond_size;
     let mut num_even = 1;
     let mut num_odd = 0;
     let mut ring = 1;
@@ -354,23 +359,47 @@ fn asdf() {
         ring += 1;
     }
     assert!(num_even + num_odd == num_squares_in_inner_diamond);
-    
+    // dbg!(num_even);
+    // dbg!(num_odd);
+
     let inner_even_val = 7265;
     let inner_odd_val = 7325;
 
     let total_inner = num_even * inner_even_val + num_odd * inner_odd_val;
 
-    let outer_corner_val_and_middle = 14853*2 + 14852*2;
+    let outer_corner_val = 14853 * 2 + 14852 * 2;
     let side_val = inner_diamond_size * (14790 + 14795 + 14793 + 14786);
-    println!("part 2: {}", outer_corner_val_and_middle + side_val + total_inner);
+    // println!("part 2: {}", outer_corner_val + side_val + total_inner);
+    outer_corner_val + side_val + total_inner
 }
 
 fn main() {
     let input = &std::fs::read_to_string("input.txt").expect("input.txt should exist");
     // println!("part 1: {}", part1(input));
     // println!("part 2: {}", part2(input));
-    asdf();
-    play_with(input);
+    // asdf();
+    // play_with(input);
+
+    // println!("part 1 bruteforce: {}", num_reachable_after_steps_bruteforce(input, 64));
+    // println!("part 1 mathy: {}", num_reachable_after_maps_mathy(1));
+
+    println!(
+        "1x1 bruteforce: {}",
+        num_reachable_after_steps_bruteforce(input, 65 + 131 * 1)
+    );
+    println!("1x1 mathy: {}", num_reachable_after_maps_mathy(1));
+
+    println!(
+        "2x2 bruteforce: {}",
+        num_reachable_after_steps_bruteforce(input, 65 + 131 * 2)
+    );
+    println!("2x2 mathy: {}", num_reachable_after_maps_mathy(2));
+
+    println!(
+        "3x3 bruteforce: {}",
+        num_reachable_after_steps_bruteforce(input, 65 + 131 * 3)
+    );
+    println!("3x3 mathy: {}", num_reachable_after_maps_mathy(3));
 }
 
 const TEST_STR: &str = r"...........
